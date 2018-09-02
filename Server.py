@@ -9,13 +9,21 @@ Send a GET request::
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os.path
 import time
-from copy import deepcopy
 
+print("Enter passwd_file:")
+passwd_file = input()
+if passwd_file == '':
+    passwd_file = '/etc/passwd'
+print("Enter group_file:")
+group_file = input()
+if group_file == '':
+    group_file = '/etc/group'
 
 class S(BaseHTTPRequestHandler):
 
     passwd_time = None
     passwd_list = []
+    
 
     def _set_headers(self):
         self.send_response(200)
@@ -23,14 +31,14 @@ class S(BaseHTTPRequestHandler):
         self.end_headers()
 
     def passwd(self):
-        current_time = os.stat('/etc/passwd').st_mtime
+        current_time = os.stat(passwd_file).st_mtime
         if (S.passwd_time == None or current_time > S.passwd_time):
             self.parse_passwd()
             S.passwd_time = current_time
 
     def parse_passwd(self):
 
-        f = open('/etc/passwd', 'r')
+        f = open(passwd_file, 'r')
         lines = f.readlines()
         f.close()
 
@@ -39,28 +47,62 @@ class S(BaseHTTPRequestHandler):
                 continue
             split = line.split(':')
             split.pop(1)
-            split[5] = split[5][0:len(split[5]) - 1]
+            if split[5][-1] == '\n':
+                split[5] = split[5][0:len(split[5]) - 1]
             S.passwd_list.append(split)
         return
 
     def parse_path(self, path):
-
-        if path == '/users':
+        if path == '/users' or path == '/users/':
             return 'all'
         elif '/users/query' in path:
-            return
+            return ('user query', self.parse_query_parameters(path, '/users/query?'))
 
         return
 
-    def user_query(self, parameters):
+    def parse_query_parameters(self, path, initial_query):
+        # remove /users/query
+        # will take out the initial ? as well
+        path = path.replace(initial_query, '')
+        # revert URL-Encoded slash to normal slash
+        path = path.replace('%2F', '/')
+        query_fields = path.split('&')
+        for index, field in enumerate(query_fields):
+            field = field.split('=')
+            if field[0] == 'name':
+                field[0] = 0
+            elif field[0] == 'uid':
+                field[0] = 1
+            elif field[0] == 'gid':
+                field[0] = 2
+            elif field[0] == 'comment':
+                field[0] = 3
+            elif field[0] == 'home':
+                field[0] = 4
+            elif field[0] == 'shell':
+                field[0] = 5
+            query_fields[index] = tuple(field)
+
+        return query_fields
+
+    def user_query(self, query_fields):
         # implement afterwards
-        passwd_list_copy = deepcopy(S.passwd_list)
-        for param in parameters:
-            continue
+        if len(query_fields) == 0:
+            passwd_list_extract = S.passwd_list
+        else:
+            passwd_list_extract = []
+            for row in S.passwd_list:
+                flag = True
+                for index, query in query_fields:
+                    if row[index] != query:
+                        flag = False
+                        break
+                if flag == True:
+                    passwd_list_extract.append(row)                   
 
         layout = ['name: ', 'uid: ', 'gid: ', 'comment: ', 'home: ', 'shell: ']
         encoded_list = []
-        for row in passwd_list_copy:
+        for row in passwd_list_extract:
             result = []
             for index, elem in enumerate(row):
                 result.append(layout[index] + elem)
@@ -75,6 +117,9 @@ class S(BaseHTTPRequestHandler):
         if option == 'all':
             self.passwd()
             encoded_list = str(self.user_query([])).encode()
+        elif option[0] == 'user query':
+            self.passwd()
+            encoded_list = str(self.user_query(option[1])).encode()
 
         self._set_headers()
         self.wfile.write(encoded_list)
@@ -89,7 +134,6 @@ def run(server_class=HTTPServer, handler_class=S, port=80):
 
 if __name__ == "__main__":
     from sys import argv
-
     if len(argv) == 2:
         run(port=int(argv[1]))
     else:
