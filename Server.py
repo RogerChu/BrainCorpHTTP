@@ -19,25 +19,33 @@ group_file = input()
 if group_file == '':
     group_file = '/etc/group'
 
+
 class S(BaseHTTPRequestHandler):
 
     passwd_time = None
     passwd_list = []
-    
 
-    def _set_headers(self):
-        self.send_response(200)
+    group_time = None
+    group_list = []
+
+    def _set_headers(self, response=200):
+        self.send_response(response)
         self.send_header('Content-type', 'text/html')
         self.end_headers()
 
-    def passwd(self):
-        current_time = os.stat(passwd_file).st_mtime
-        if (S.passwd_time == None or current_time > S.passwd_time):
-            self.parse_passwd()
-            S.passwd_time = current_time
+    def parse(self, file=None):
+        if file == 'passwd':
+            current_time = os.stat(passwd_file).st_mtime
+            if (S.passwd_time == None or current_time > S.passwd_time):
+                self.parse_passwd()
+                S.passwd_time = current_time
+        elif file == 'group':
+            current_time = os.stat(group_file).st_mtime
+            if (S.group_time == None or current_time > S.group_time):
+                self.parse_group()
+                S.group_time = current_time
 
     def parse_passwd(self):
-
         f = open(passwd_file, 'r')
         lines = f.readlines()
         f.close()
@@ -52,11 +60,39 @@ class S(BaseHTTPRequestHandler):
             S.passwd_list.append(split)
         return
 
+    def parse_group(self):
+        f = open(group_file, 'r')
+        lines = f.readlines()
+        f.close()
+
+        for line in lines:
+            if '#' == line[0]:
+                continue
+            split = line.split(':')
+            split.pop(1)
+            if split[2][-1] == '\n':
+                split[2] = split[2][0:len(split[2]) - 1]
+            split[2] = str(split[2].split(','))
+            S.group_list.append(split)
+        return
+
     def parse_path(self, path):
         if path == '/users' or path == '/users/':
             return 'all'
         elif '/users/query' in path:
             return ('user query', self.parse_query_parameters(path, '/users/query?'))
+
+        elif '/users' in path:
+            if '/groups' in path:
+                return
+            else:
+                path = path.replace('/users/', '')
+                query_fields = []
+                query_fields.append((1, path))
+                return ('user query', query_fields)
+
+        elif path == '/groups' or path == '/groups/':
+            return 'all groups'
 
         return
 
@@ -88,9 +124,9 @@ class S(BaseHTTPRequestHandler):
     def user_query(self, query_fields):
         # implement afterwards
         if len(query_fields) == 0:
-            passwd_list_extract = S.passwd_list
+            extract = S.passwd_list
         else:
-            passwd_list_extract = []
+            extract = []
             for row in S.passwd_list:
                 flag = True
                 for index, query in query_fields:
@@ -98,11 +134,35 @@ class S(BaseHTTPRequestHandler):
                         flag = False
                         break
                 if flag == True:
-                    passwd_list_extract.append(row)                   
+                    extract.append(row)
 
         layout = ['name: ', 'uid: ', 'gid: ', 'comment: ', 'home: ', 'shell: ']
         encoded_list = []
-        for row in passwd_list_extract:
+        for row in extract:
+            result = []
+            for index, elem in enumerate(row):
+                result.append(layout[index] + elem)
+            encoded_list.append(result)
+        return encoded_list
+    
+    def group_query(self, query_fields):
+        # implement afterwards
+        if len(query_fields) == 0:
+            extract = S.group_list
+        else:
+            extract = []
+            for row in S.group_list:
+                flag = True
+                for index, query in query_fields:
+                    if row[index] != query:
+                        flag = False
+                        break
+                if flag == True:
+                    extract.append(row)
+
+        layout = ['name: ', 'gid: ', 'members: ']
+        encoded_list = []
+        for row in extract:
             result = []
             for index, elem in enumerate(row):
                 result.append(layout[index] + elem)
@@ -112,17 +172,26 @@ class S(BaseHTTPRequestHandler):
     def do_GET(self):
 
         option = self.parse_path(self.path)
-
         encoded_list = None
         if option == 'all':
-            self.passwd()
+            self.parse('passwd')
             encoded_list = str(self.user_query([])).encode()
+            self._set_headers(200)
+            self.wfile.write(encoded_list)
         elif option[0] == 'user query':
-            self.passwd()
-            encoded_list = str(self.user_query(option[1])).encode()
-
-        self._set_headers()
-        self.wfile.write(encoded_list)
+            self.parse('passwd')
+            query = self.user_query(option[1])
+            if len(query) == 0:
+                self._set_headers(response=404)
+            else:
+                self._set_headers()
+                encoded_list = str(query).encode()
+                self.wfile.write(encoded_list)
+        elif option == 'all groups':
+            self.parse('group')
+            encoded_list = str(self.group_query([])).encode()
+            self._set_headers(200)
+            self.wfile.write(encoded_list)
 
 
 def run(server_class=HTTPServer, handler_class=S, port=80):
