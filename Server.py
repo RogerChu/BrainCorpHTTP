@@ -9,6 +9,7 @@ Send a GET request::
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os.path
 import time
+from pathlib import Path
 
 
 class S(BaseHTTPRequestHandler):
@@ -267,10 +268,18 @@ print("Enter passwd_file:")
 passwd_file = input()
 if passwd_file == '':
     passwd_file = '/etc/passwd'
+myFile = Path(passwd_file)
+if myFile.is_file() == False:
+    raise Exception('Passwd File not valid')
+
 print("Enter group_file:")
 group_file = input()
 if group_file == '':
     group_file = '/etc/group'
+
+myFile = Path(group_file)
+if myFile.is_file() == False:
+    raise Exception('Group File not valid')
 
 
 def run(server_class=HTTPServer, handler_class=S, port=80):
