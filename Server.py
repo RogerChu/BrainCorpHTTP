@@ -213,7 +213,6 @@ class S(BaseHTTPRequestHandler):
 
     # Since only GET needed to be supported, hence this function
     def do_GET(self):
-
         option = self.parse_path(self.path)
         encoded_list = None
         if option == 'all':
